@@ -1,0 +1,7 @@
+package com.teamflow.task.entity;
+
+public enum TaskStatus {
+    TODO,
+    IN_PROGRESS,
+    DONE
+}
