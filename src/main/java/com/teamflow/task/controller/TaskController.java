@@ -10,6 +10,11 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.web.bind.annotation.RequestParam;
 
 import java.util.List;
 
@@ -36,14 +41,25 @@ public class TaskController {
     }
 
     @GetMapping
-    public ResponseEntity<List<TaskResponse>> getProjectTasks(
+    public Page<TaskResponse> getProjectTasks(
             @PathVariable Long projectId,
-            Authentication authentication) {
+            Authentication authentication,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(defaultValue = "createdAt") String sortBy,
+            @RequestParam(defaultValue = "desc") String direction) {
 
-        List<TaskResponse> tasks =
-                taskService.getProjectTasks(projectId, authentication);
+        Sort sort = direction.equalsIgnoreCase("asc")
+                ? Sort.by(sortBy).ascending()
+                : Sort.by(sortBy).descending();
 
-        return ResponseEntity.ok(tasks);
+        Pageable pageable = PageRequest.of(page, size, sort);
+
+        return taskService.getProjectTasks(
+                projectId,
+                authentication,
+                pageable
+        );
     }
 
     @GetMapping("/{taskId}")

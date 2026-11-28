@@ -12,12 +12,16 @@ import com.teamflow.task.repository.TaskCommentRepository;
 import com.teamflow.task.repository.TaskRepository;
 import com.teamflow.user.entity.User;
 import com.teamflow.user.repository.UserRepository;
+import com.teamflow.notification.entity.NotificationType;
+import com.teamflow.notification.service.NotificationService;
 
 import com.teamflow.workspace.entity.WorkspaceMembership;
 import com.teamflow.workspace.entity.WorkspaceRole;
 import com.teamflow.workspace.repository.WorkspaceMembershipRepository;
 import lombok.RequiredArgsConstructor;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
@@ -36,6 +40,7 @@ public class TaskService {
     private final ProjectMemberRepository projectMemberRepository;
     private final WorkspaceMembershipRepository workspaceMembershipRepository;
     private final TaskCommentRepository taskCommentRepository;
+    private final NotificationService notificationService;
 
     @Transactional
     public TaskResponse createTask(
@@ -97,9 +102,10 @@ public class TaskService {
     }
 
     @Transactional(readOnly = true)
-    public List<TaskResponse> getProjectTasks(
+    public Page<TaskResponse> getProjectTasks(
             Long projectId,
-            Authentication authentication) {
+            Authentication authentication,
+            Pageable pageable) {
 
         String currentUserEmail = authentication.getName();
 
@@ -128,24 +134,22 @@ public class TaskService {
             );
         }
 
-        List<Task> tasks = taskRepository.findByProjectId(projectId);
+        Page<Task> tasks = taskRepository.findByProjectId(projectId, pageable);
 
-        return tasks.stream()
-                .map(task -> new TaskResponse(
-                        task.getId(),
-                        task.getTitle(),
-                        task.getDescription(),
-                        task.getProject().getId(),
-                        task.getCreatedBy().getEmail(),
-                        task.getPriority(),
-                        task.getStatus(),
-                        task.getDueDate(),
-                        task.getCreatedAt(),
-                        task.getAssignedTo() != null
-                                ? task.getAssignedTo().getEmail()
-                                : null
-                ))
-                .toList();
+        return tasks.map(task -> new TaskResponse(
+                task.getId(),
+                task.getTitle(),
+                task.getDescription(),
+                task.getProject().getId(),
+                task.getCreatedBy().getEmail(),
+                task.getPriority(),
+                task.getStatus(),
+                task.getDueDate(),
+                task.getCreatedAt(),
+                task.getAssignedTo() != null
+                        ? task.getAssignedTo().getEmail()
+                        : null
+        ));
     }
 
     @Transactional(readOnly = true)
@@ -342,9 +346,41 @@ public class TaskService {
                         "Task not found"
                 ));
 
+        TaskStatus oldStatus = task.getStatus();
+
         task.setStatus(request.getStatus());
 
         Task updatedTask = taskRepository.save(task);
+
+        if (oldStatus != updatedTask.getStatus()) {
+
+            User taskCreator = task.getCreatedBy();
+
+            if (!taskCreator.getEmail().equals(currentUserEmail)) {
+                notificationService.createNotification(
+                        taskCreator,
+                        task,
+                        NotificationType.TASK_STATUS_CHANGED,
+                        "Task status changed to " + updatedTask.getStatus()
+                                + ": " + task.getTitle()
+                );
+            }
+
+            User assignedUser = task.getAssignedTo();
+
+            if (assignedUser != null
+                    && !assignedUser.getEmail().equals(currentUserEmail)
+                    && !assignedUser.getId().equals(taskCreator.getId())) {
+
+                notificationService.createNotification(
+                        assignedUser,
+                        task,
+                        NotificationType.TASK_STATUS_CHANGED,
+                        "Task status changed to " + updatedTask.getStatus()
+                                + ": " + task.getTitle()
+                );
+            }
+        }
 
         return new TaskResponse(
                 updatedTask.getId(),
@@ -356,8 +392,8 @@ public class TaskService {
                 updatedTask.getStatus(),
                 updatedTask.getDueDate(),
                 updatedTask.getCreatedAt(),
-                task.getAssignedTo() != null
-                        ? task.getAssignedTo().getEmail()
+                updatedTask.getAssignedTo() != null
+                        ? updatedTask.getAssignedTo().getEmail()
                         : null
         );
     }
@@ -488,6 +524,13 @@ public class TaskService {
         task.setAssignedTo(assignedUser);
 
         taskRepository.save(task);
+
+        notificationService.createNotification(
+                assignedUser,
+                task,
+                NotificationType.TASK_ASSIGNED,
+                "You have been assigned a task: " + task.getTitle()
+        );
     }
 
     @Transactional(readOnly = true)
@@ -790,6 +833,7 @@ public class TaskService {
                 .toList();
     }
 
+
     @Transactional
     public TaskCommentResponse addComment(
             Long projectId,
@@ -836,6 +880,31 @@ public class TaskService {
         comment.setUser(user);
 
         TaskComment savedComment = taskCommentRepository.save(comment);
+
+        User taskCreator = task.getCreatedBy();
+
+        if (!taskCreator.getEmail().equals(email)) {
+            notificationService.createNotification(
+                    taskCreator,
+                    task,
+                    NotificationType.TASK_COMMENTED,
+                    user.getName() + " commented on your task: " + task.getTitle()
+            );
+        }
+
+        User assignedUser = task.getAssignedTo();
+
+        if (assignedUser != null
+                && !assignedUser.getEmail().equals(email)
+                && !assignedUser.getId().equals(taskCreator.getId())) {
+
+            notificationService.createNotification(
+                    assignedUser,
+                    task,
+                    NotificationType.TASK_COMMENTED,
+                    user.getName() + " commented on a task assigned to you: " + task.getTitle()
+            );
+        }
 
         return new TaskCommentResponse(
                 savedComment.getId(),

@@ -8,10 +8,12 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 public interface TaskRepository extends JpaRepository<Task, Long> {
 
-    List<Task> findByProjectId(Long projectId);
+    Page<Task> findByProjectId(Long projectId, Pageable pageable);
 
     Optional<Task> findByIdAndProjectId(Long id, Long projectId);
 
